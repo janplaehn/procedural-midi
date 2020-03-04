@@ -10,6 +10,7 @@ using System.Linq;
 public class MidiReader {
     private MidiFile _midiFile = null;
     [HideInInspector] public List<NoteInfo> _noteInfos = new List<NoteInfo>();
+    [HideInInspector] public List<DurationInfo> _durationInfos = new List<DurationInfo>();
     [HideInInspector] public TempoMap tempoMap = null;
 
     public MidiReader(string path) {
@@ -22,31 +23,46 @@ public class MidiReader {
         var notes = _midiFile.GetNotes();
         foreach (Note note in notes) {
             ReadNote(note);
+            ReadDuration(note);
         }
         Debug.Break();
     }
 
+    private DurationInfo _lastDurationInfo = null;
+    private void ReadDuration(Note note) {
+        DurationInfo durationInfo = new DurationInfo(note.TimeAs<MidiTimeSpan>(tempoMap), note.EndTimeAs<MidiTimeSpan>(tempoMap), note.LengthAs<MidiTimeSpan>(tempoMap));
+        if (_lastDurationInfo != null) {
+            if (IsConcurrent(durationInfo, _lastDurationInfo)) {
+                return;
+            }
+            MidiTimeSpan pause = GetPause(_lastDurationInfo, durationInfo);
+            if (IsDurationInList(durationInfo, out DurationInfo clone)) {
+                durationInfo = clone;
+            }
+            _lastDurationInfo.AddPause(pause);
+            _lastDurationInfo.AddNextDuration(durationInfo);
+            _durationInfos.Add(_lastDurationInfo);
 
-    private NoteInfo _secondToLastNoteInfo = null;
+        }
+        _lastDurationInfo = durationInfo;
+    }
+
     private NoteInfo _lastNoteInfo = null;
     public void ReadNote(Note note) {
-        NoteInfo noteInfo = new NoteInfo(note.NoteName, note.Octave, note.TimeAs<MidiTimeSpan>(tempoMap), note.EndTimeAs<MidiTimeSpan>(tempoMap), note.LengthAs<MidiTimeSpan>(tempoMap));
+        NoteInfo noteInfo = new NoteInfo(note.NoteName, note.Octave, note.TimeAs<MidiTimeSpan>(tempoMap));
         noteInfo._concurrentNotes = GetConcurrentNotes(noteInfo);
         if (_lastNoteInfo != null) {
             if (IsConcurrent(noteInfo, _lastNoteInfo)) {
                 return;
             }
-            MidiTimeSpan pause = GetPause(_lastNoteInfo, noteInfo);
             if (IsNoteInList(noteInfo, out NoteInfo clone)) {
                 noteInfo = clone;
             }
-            _lastNoteInfo.AddPause(pause);
             _lastNoteInfo.AddNextNote(noteInfo);
             _noteInfos.Add(_lastNoteInfo);
 
         }
         _lastNoteInfo = noteInfo;
-        _secondToLastNoteInfo = _lastNoteInfo;
     }
 
     public List<NoteInfo.ConcurrentNote> GetConcurrentNotes(NoteInfo noteInfo) {
@@ -61,7 +77,7 @@ public class MidiReader {
         return concurrentNotes;
     }
 
-    public MidiTimeSpan GetPause(NoteInfo first, NoteInfo second) {
+    public MidiTimeSpan GetPause(DurationInfo first, DurationInfo second) {
         MidiTimeSpan pause;
         if (second._startTime.CompareTo(first._endTime) > 0) {
             pause = (MidiTimeSpan)second._startTime.Subtract(first._endTime, TimeSpanMode.TimeTime);
@@ -73,6 +89,11 @@ public class MidiReader {
     }
 
     public bool IsConcurrent(NoteInfo infoA, NoteInfo infoB) {
+        if (Mathf.Abs(infoA._startTime.TimeSpan - infoB._startTime.TimeSpan) < 10) return true;
+        return false;
+    }
+
+    public bool IsConcurrent(DurationInfo infoA, DurationInfo infoB) {
         if (Mathf.Abs(infoA._startTime.TimeSpan - infoB._startTime.TimeSpan) < 10) return true;
         return false;
     }
@@ -91,9 +112,26 @@ public class MidiReader {
         return false;
     }
 
+    bool IsDurationInList(DurationInfo info, out DurationInfo clone) {
+        foreach (DurationInfo durationInfo in _durationInfos) {
+            if (durationInfo != info
+                && durationInfo.GetTimeSpan().Equals(info.GetTimeSpan())) {
+                clone = durationInfo;
+                return true;
+            }
+        }
+        clone = null;
+        return false;
+    }
+
     public NoteInfo GetRandomNote() {
         int r = UnityEngine.Random.Range(0,_noteInfos.Count);
         return _noteInfos[r];
+    }
+
+    public DurationInfo GetRandomDuration() {
+        int r = UnityEngine.Random.Range(0, _durationInfos.Count);
+        return _durationInfos[r];
     }
 
     public static bool CompareListsScrambled<T>(List<T> aListA, List<T> aListB) {
@@ -102,7 +140,6 @@ public class MidiReader {
         if (aListA.Count == 0)
             return true;
         Dictionary<T, int> lookUp = new Dictionary<T, int>();
-        // create index for the first list
         for (int i = 0; i < aListA.Count; i++) {
             int count = 0;
             if (!lookUp.TryGetValue(aListA[i], out count)) {
@@ -114,7 +151,6 @@ public class MidiReader {
         for (int i = 0; i < aListB.Count; i++) {
             int count = 0;
             if (!lookUp.TryGetValue(aListB[i], out count)) {
-                // early exit as the current value in B doesn't exist in the lookUp (and not in ListA)
                 return false;
             }
             count--;
@@ -123,7 +159,6 @@ public class MidiReader {
             else
                 lookUp[aListB[i]] = count;
         }
-        // if there are remaining elements in the lookUp, that means ListA contains elements that do not exist in ListB
         return lookUp.Count == 0;
     }
 }

@@ -48,12 +48,14 @@ public class MidiGenerator : MonoBehaviour {
             var patternBuilder = new PatternBuilder();
 
             NoteInfo currentNoteInfo = midiReader.GetRandomNote();
+            DurationInfo currentDurationInfo = midiReader.GetRandomDuration();
 
             int currentNoteCount = 0;
             while (currentNoteCount < notesToOutput) {
-                BuildChord(currentNoteInfo, patternBuilder);
-                BuildPause(currentNoteInfo, patternBuilder);
+                BuildChord(currentNoteInfo, currentDurationInfo, patternBuilder);
+                BuildPause(currentDurationInfo, patternBuilder);
                 currentNoteInfo = currentNoteInfo.GetRandomNextNote();
+                currentDurationInfo = currentDurationInfo.GetRandomNextDuration();
             if (currentNoteInfo == null) {
                 Debug.LogWarning("No consecutive Note found!");
                 break;
@@ -68,8 +70,8 @@ public class MidiGenerator : MonoBehaviour {
         return trackChunk;
     }
 
-    private void BuildChord(NoteInfo noteInfo, PatternBuilder patternBuilder) {
-        MidiTimeSpan timeSpan = noteInfo.GetTimeSpan();
+    private void BuildChord(NoteInfo noteInfo, DurationInfo durationInfo, PatternBuilder patternBuilder) {
+        MidiTimeSpan timeSpan = durationInfo.GetTimeSpan();
         patternBuilder.SetNoteLength(timeSpan);
         patternBuilder.SetOctave(Octave.Get(noteInfo._octave));
         patternBuilder.Note(noteInfo._noteName);
@@ -80,8 +82,8 @@ public class MidiGenerator : MonoBehaviour {
         }
     }
 
-    private void BuildPause(NoteInfo noteInfo, PatternBuilder patternBuilder) {
-        MidiTimeSpan pause = noteInfo.GetRandomPause();
+    private void BuildPause(DurationInfo durationInfo, PatternBuilder patternBuilder) {
+        MidiTimeSpan pause = durationInfo.GetRandomPause();
         if (pause != null && pause.TimeSpan < maxPauseLength) {
             patternBuilder.StepForward(pause);
         }
